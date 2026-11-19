@@ -1,0 +1,300 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Consolidado SENA 2026</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+body{font-family:Arial,sans-serif;background:#f3f6f4;margin:0;color:#253329}
+header{background:#16823a;color:white;padding:20px;text-align:center}
+main{max-width:1050px;margin:25px auto;padding:15px}
+section{background:white;padding:22px;border-radius:12px;margin-bottom:18px;box-shadow:0 2px 8px #0001}
+h2{color:#16823a}
+input,select,textarea{box-sizing:border-box;width:100%;padding:11px;margin:6px 0 13px;border:1px solid #bbc8bd;border-radius:6px;font:inherit}
+button{background:#16823a;color:white;border:0;padding:11px 17px;border-radius:6px;cursor:pointer;margin:4px}
+button.secondary{background:#52645a}
+button.danger{background:#a33232}
+label{font-weight:bold;font-size:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.hidden{display:none}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{border:1px solid #ddd;padding:9px;text-align:left}
+th{background:#e5f3e9}
+.scroll{overflow-x:auto}
+#mensaje{padding:10px;white-space:pre-wrap}
+small{color:#56685b}
+</style>
+</head>
+<body>
+<header>
+<h1>Consolidado SENA 2026</h1>
+<p>Gestión de fichas y aprendices</p>
+</header>
+<main>
+<section id="login">
+<h2>Iniciar sesión</h2>
+<label>Correo electrónico</label>
+<input id="email" type="email" autocomplete="username">
+<label>Contraseña</label>
+<input id="password" type="password" autocomplete="current-password">
+<button onclick="entrar()">Ingresar</button>
+</section>
+
+<section id="panel" class="hidden">
+<h2>Panel de gestión</h2>
+<p id="usuario"></p>
+<p id="rol"></p>
+<button onclick="cargar()">Actualizar registros</button>
+<button class="secondary" onclick="salir()">Cerrar sesión</button>
+</section>
+
+<section id="fichasForm" class="hidden">
+<h2>Registro de ficha</h2>
+<input type="hidden" id="fichaId">
+<div class="grid">
+<div><label>Instructor</label><input id="instructor"></div>
+<div><label>Correo del instructor</label><input id="correo" type="email"></div>
+<div><label>Programa de formación</label><input id="programa"></div>
+<div><label>Número de ficha</label><input id="ficha"></div>
+<div><label>Regional</label><input id="regional"></div>
+<div><label>Centro de formación</label><input id="centro"></div>
+<div><label>Fecha de inicio</label><input id="inicio" type="date"></div>
+<div><label>Fecha de cierre</label><input id="cierre" type="date"></div>
+<div><label>Matriculados</label><input id="matriculados" type="number" min="0"></div>
+<div><label>Por certificar</label><input id="certificar" type="number" min="0"></div>
+<div><label>No aprobados</label><input id="noaprobados" type="number" min="0"></div>
+<div><label>Cancelados</label><input id="cancelados" type="number" min="0"></div>
+<div><label>Retirados</label><input id="retirados" type="number" min="0"></div>
+</div>
+<label>Observaciones</label>
+<textarea id="observaciones" rows="3"></textarea>
+<button onclick="guardarFicha()">Guardar ficha</button>
+<button class="secondary" onclick="limpiarFicha()">Nueva ficha</button>
+</section>
+
+<section id="aprendicesForm" class="hidden">
+<h2>Registro de aprendiz</h2>
+<input type="hidden" id="aprendizId">
+<div class="grid">
+<div><label>Número de ficha</label><input id="aficha"></div>
+<div><label>Programa</label><input id="aprograma"></div>
+<div><label>Documento de identidad</label><input id="documento"></div>
+<div><label>Nombres</label><input id="nombres"></div>
+<div><label>Apellidos</label><input id="apellidos"></div>
+<div><label>¿Aprobó todos los RAP?</label>
+<select id="aprobo"><option value="Sí">Sí</option><option value="No">No</option></select></div>
+</div>
+<label>Observaciones del aprendiz</label>
+<textarea id="aobservaciones" rows="3"></textarea>
+<button onclick="guardarAprendiz()">Guardar aprendiz</button>
+<button class="secondary" onclick="limpiarAprendiz()">Nuevo aprendiz</button>
+</section>
+
+<section id="resultados" class="hidden">
+<h2>Consolidado de fichas</h2>
+<button onclick="exportar('fichas')">Exportar fichas CSV</button>
+<div class="scroll"><table id="tablaFichas"></table></div>
+<h2>Consolidado de aprendices</h2>
+<button onclick="exportar('aprendices')">Exportar aprendices CSV</button>
+<div class="scroll"><table id="tablaAprendices"></table></div>
+</section>
+<section><div id="mensaje" role="status"></div></section>
+</main>
+<script>
+const SUPABASE_URL="https://lqoxcwlplvdodjaunlld.supabase.co";
+const SUPABASE_KEY="sb_publishable_femp-P3NLfxP4QvIMQKF7g_0Ya33_Sq";
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let usuarioActual=null,esAdmin=false;
+let fichas=[],aprendices=[];
+const $=id=>document.getElementById(id);
+function mensaje(t){$("mensaje").textContent=t}
+function mostrar(id,si){$(id).classList.toggle("hidden",!si)}
+function error(e){mensaje("Error: "+(e?.message||String(e)))}
+function valor(id){return $(id).value.trim()}
+function numero(id){return valor(id)===""?null:Number(valor(id))}
+function fecha(id){return valor(id)||null}
+function rellenar(datos,campos){
+ campos.forEach(([id,col])=>$(id).value=datos[col]??"");
+}
+async function entrar(){
+ try{
+ const {data,error:e}=await db.auth.signInWithPassword({
+ email:valor("email"),password:$("password").value});
+ if(e)throw e;
+ await iniciar(data.user);
+ }catch(e){error(e)}
+}
+async function iniciar(user){
+ usuarioActual=user;
+ const {data,error:e}=await db.from("sena_admins")
+ .select("user_id").eq("user_id",user.id);
+ if(e)throw e;
+ esAdmin=(data||[]).length>0;
+ $("usuario").textContent="Usuario: "+user.email;
+ $("rol").textContent=esAdmin?"Rol: Administradora general":"Rol: Instructor";
+ ["login","panel","fichasForm","aprendicesForm","resultados"]
+ .forEach(id=>mostrar(id,id!=="login"));
+ $("correo").value=user.email||"";
+ await cargar();
+}
+async function salir(){
+ await db.auth.signOut();
+ usuarioActual=null;esAdmin=false;
+ ["panel","fichasForm","aprendicesForm","resultados"]
+ .forEach(id=>mostrar(id,false));
+ mostrar("login",true);mensaje("Sesión cerrada");
+}
+async function todos(tabla){
+ let salida=[],desde=0;
+ while(true){
+ const {data,error:e}=await db.from(tabla).select("*")
+ .order("created_at",{ascending:false}).range(desde,desde+999);
+ if(e)throw e;
+ salida.push(...data);
+ if(data.length<1000)break;
+ desde+=1000;
+ }
+ return salida;
+}
+async function cargar(){
+ try{
+ fichas=await todos("sena_fichas");
+ aprendices=await todos("sena_aprendices");
+ dibujar("tablaFichas",fichas,
+ ["instructor","correo","programa","ficha","regional","centro",
+ "inicio","cierre","matriculados","certificar","noaprobados",
+ "cancelados","retirados","observaciones"],"ficha");
+ dibujar("tablaAprendices",aprendices,
+ ["ficha","programa","documento","nombres","apellidos","aprobo",
+ "observaciones"],"aprendiz");
+ mensaje("Registros cargados: "+fichas.length+" fichas y "+
+ aprendices.length+" aprendices.");
+ }catch(e){error(e)}
+}
+function dibujar(id,datos,columnas,tipo){
+ const tabla=$(id);tabla.replaceChildren();
+ const head=tabla.createTHead().insertRow();
+ [...columnas,"Acción"].forEach(c=>{
+ const th=document.createElement("th");th.textContent=c;head.append(th);
+ });
+ const body=tabla.createTBody();
+ datos.forEach(d=>{
+ const tr=body.insertRow();
+ columnas.forEach(c=>{
+ const td=tr.insertCell();td.textContent=d[c]??"";
+ });
+ const td=tr.insertCell();
+ if(d.user_id===usuarioActual.id){
+ const b=document.createElement("button");
+ b.textContent="Editar";
+ b.onclick=()=>editar(tipo,d.id);
+ td.append(b);
+ }
+ });
+}
+function editar(tipo,id){
+ if(tipo==="ficha"){
+ const d=fichas.find(x=>x.id===id);
+ $("fichaId").value=d.id;
+ rellenar(d,[["instructor","instructor"],["correo","correo"],
+ ["programa","programa"],["ficha","ficha"],["regional","regional"],
+ ["centro","centro"],["inicio","inicio"],["cierre","cierre"],
+ ["matriculados","matriculados"],["certificar","certificar"],
+ ["noaprobados","noaprobados"],["cancelados","cancelados"],
+ ["retirados","retirados"],["observaciones","observaciones"]]);
+ $("fichasForm").scrollIntoView();
+ }else{
+ const d=aprendices.find(x=>x.id===id);
+ $("aprendizId").value=d.id;
+ rellenar(d,[["aficha","ficha"],["aprograma","programa"],
+ ["documento","documento"],["nombres","nombres"],
+ ["apellidos","apellidos"],["aprobo","aprobo"],
+ ["aobservaciones","observaciones"]]);
+ $("aprendicesForm").scrollIntoView();
+ }
+}
+function limpiarFicha(){
+ $("fichaId").value="";
+ ["instructor","programa","ficha","regional","centro","inicio",
+ "cierre","matriculados","certificar","noaprobados","cancelados",
+ "retirados","observaciones"].forEach(id=>$(id).value="");
+ $("correo").value=usuarioActual?.email||"";
+}
+function limpiarAprendiz(){
+ $("aprendizId").value="";
+ ["aficha","aprograma","documento","nombres","apellidos",
+ "aobservaciones"].forEach(id=>$(id).value="");
+ $("aprobo").value="Sí";
+}
+async function guardarFicha(){
+ try{
+ if(!usuarioActual)throw Error("Inicia sesión");
+ const d={
+ instructor:valor("instructor"),correo:valor("correo"),
+ programa:valor("programa"),ficha:valor("ficha"),
+ regional:valor("regional"),centro:valor("centro"),
+ inicio:fecha("inicio"),cierre:fecha("cierre"),
+ matriculados:numero("matriculados"),certificar:numero("certificar"),
+ noaprobados:numero("noaprobados"),cancelados:numero("cancelados"),
+ retirados:numero("retirados"),observaciones:valor("observaciones")
+ };
+ if(!d.instructor||!d.correo||!d.programa||!d.ficha)
+ throw Error("Completa instructor, correo, programa y ficha");
+ let q;
+ if(valor("fichaId")){
+ q=db.from("sena_fichas").update(d).eq("id",valor("fichaId"));
+ }else{
+ q=db.from("sena_fichas").insert({...d,user_id:usuarioActual.id});
+ }
+ const {error:e}=await q;if(e)throw e;
+ limpiarFicha();await cargar();mensaje("Ficha guardada en Supabase");
+ }catch(e){error(e)}
+}
+async function guardarAprendiz(){
+ try{
+ if(!usuarioActual)throw Error("Inicia sesión");
+ const d={ficha:valor("aficha"),programa:valor("aprograma"),
+ documento:valor("documento"),nombres:valor("nombres"),
+ apellidos:valor("apellidos"),aprobo:valor("aprobo"),
+ observaciones:valor("aobservaciones")};
+ if(!d.ficha||!d.programa||!d.documento||!d.nombres||!d.apellidos)
+ throw Error("Completa los datos obligatorios del aprendiz");
+ let q;
+ if(valor("aprendizId")){
+ q=db.from("sena_aprendices").update(d).eq("id",valor("aprendizId"));
+ }else{
+ q=db.from("sena_aprendices").insert({...d,user_id:usuarioActual.id});
+ }
+ const {error:e}=await q;if(e)throw e;
+ limpiarAprendiz();await cargar();mensaje("Aprendiz guardado en Supabase");
+ }catch(e){error(e)}
+}
+function exportar(tipo){
+ const datos=tipo==="fichas"?fichas:aprendices;
+ if(!datos.length){mensaje("No hay registros para exportar");return}
+ const cols=tipo==="fichas"?
+ ["instructor","correo","programa","ficha","regional","centro",
+ "inicio","cierre","matriculados","certificar","noaprobados",
+ "cancelados","retirados","observaciones"]:
+ ["ficha","programa","documento","nombres","apellidos",
+ "aprobo","observaciones"];
+ const celda=v=>'"'+String(v??"").replace(/^[=+\-@\t\r]/,"'").replace(/"/g,'""')+'"';
+ const csv="\uFEFF"+[cols.join(";"),...datos.map(d=>
+ cols.map(c=>celda(d[c])).join(";"))].join("\r\n");
+ const url=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+ const a=document.createElement("a");a.href=url;
+ a.download="sena_2026_"+tipo+".csv";a.click();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+(async()=>{
+ try{
+ const {data,error:e}=await db.auth.getUser();
+ if(e)throw e;
+ if(data.user)await iniciar(data.user);
+ }catch(e){error(e)}
+})();
+</script>
+</body>
+</html>
