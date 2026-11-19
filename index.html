@@ -74,23 +74,38 @@ small{color:#56685b}
 <button class="secondary" onclick="limpiarFicha()">Nueva ficha</button>
 </section>
 
+
 <section id="aprendicesForm" class="hidden">
-<h2>Registro de aprendiz</h2>
-<input type="hidden" id="aprendizId">
-<div class="grid">
-<div><label>Número de ficha</label><input id="aficha"></div>
-<div><label>Programa</label><input id="aprograma"></div>
-<div><label>Documento de identidad</label><input id="documento"></div>
-<div><label>Nombres</label><input id="nombres"></div>
-<div><label>Apellidos</label><input id="apellidos"></div>
-<div><label>¿Aprobó todos los RAP?</label>
-<select id="aprobo"><option value="Sí">Sí</option><option value="No">No</option></select></div>
-</div>
-<label>Observaciones del aprendiz</label>
-<textarea id="aobservaciones" rows="3"></textarea>
-<button onclick="guardarAprendiz()">Guardar aprendiz</button>
-<button class="secondary" onclick="limpiarAprendiz()">Nuevo aprendiz</button>
+
+<h2>Listado de aprendices por ficha</h2>
+
+<label>Seleccione la ficha</label>
+<select id="fichaListado">
+<option value="">Seleccione una ficha</option>
+</select>
+
+<h3>Listado de Aprendices que aprobaron todos los Resultados de Aprendizaje (RAP)</h3>
+
+<p>Copie desde Excel las columnas Número de documento y Nombre completo.</p>
+
+<textarea id="listaAprobados" rows="8"
+placeholder="Pegue aquí los documentos y nombres de los aprendices aprobados"></textarea>
+
+<h3>Listado de Aprendices que no aprobaron todos los Resultados de Aprendizaje (RAP)</h3>
+
+<p>Copie desde Excel las columnas Número de documento y Nombre completo.</p>
+
+<textarea id="listaNoAprobados" rows="8"
+placeholder="Pegue aquí los documentos y nombres de los aprendices no aprobados"></textarea>
+
+<button onclick="guardarListados()">
+Guardar listados de aprendices
+</button>
+
+<p id="resumenListados"></p>
+
 </section>
+
 
 <section id="resultados" class="hidden">
 <h2>Consolidado de fichas</h2>
@@ -162,6 +177,9 @@ async function cargar(){
  try{
  fichas=await todos("sena_fichas");
  aprendices=await todos("sena_aprendices");
+  
+actualizarSelectorFichas();
+
  dibujar("tablaFichas",fichas,
  ["instructor","correo","programa","ficha","regional","centro",
  "inicio","cierre","matriculados","certificar","noaprobados",
@@ -173,6 +191,33 @@ async function cargar(){
  aprendices.length+" aprendices.");
  }catch(e){error(e)}
 }
+ 
+function actualizarSelectorFichas() {
+  const selector = document.getElementById("fichaListado");
+
+  if (!selector) return;
+
+  const seleccionAnterior = selector.value;
+
+  selector.innerHTML =
+    '<option value="">Seleccione una ficha</option>';
+
+  fichas.forEach(f => {
+    const opcion = document.createElement("option");
+
+    opcion.value = f.id;
+    opcion.textContent = f.ficha + " - " + f.programa;
+
+    selector.appendChild(opcion);
+  });
+
+  if ([...selector.options].some(
+    o => o.value === seleccionAnterior
+  )) {
+    selector.value = seleccionAnterior;
+  }
+}
+
 function dibujar(id,datos,columnas,tipo){
  const tabla=$(id);tabla.replaceChildren();
  const head=tabla.createTHead().insertRow();
@@ -194,27 +239,67 @@ function dibujar(id,datos,columnas,tipo){
  }
  });
 }
-function editar(tipo,id){
- if(tipo==="ficha"){
- const d=fichas.find(x=>x.id===id);
- $("fichaId").value=d.id;
- rellenar(d,[["instructor","instructor"],["correo","correo"],
- ["programa","programa"],["ficha","ficha"],["regional","regional"],
- ["centro","centro"],["inicio","inicio"],["cierre","cierre"],
- ["matriculados","matriculados"],["certificar","certificar"],
- ["noaprobados","noaprobados"],["cancelados","cancelados"],
- ["retirados","retirados"],["observaciones","observaciones"]]);
- $("fichasForm").scrollIntoView();
- }else{
- const d=aprendices.find(x=>x.id===id);
- $("aprendizId").value=d.id;
- rellenar(d,[["aficha","ficha"],["aprograma","programa"],
- ["documento","documento"],["nombres","nombres"],
- ["apellidos","apellidos"],["aprobo","aprobo"],
- ["aobservaciones","observaciones"]]);
- $("aprendicesForm").scrollIntoView();
- }
+
+function editar(tipo,id) {
+  if (tipo === "ficha") {
+    const d = fichas.find(x => x.id === id);
+    if (!d) return;
+
+    $("fichaId").value = d.id;
+
+    rellenar(d, [
+      ["instructor","instructor"],
+      ["correo","correo"],
+      ["programa","programa"],
+      ["ficha","ficha"],
+      ["regional","regional"],
+      ["centro","centro"],
+      ["inicio","inicio"],
+      ["cierre","cierre"],
+      ["matriculados","matriculados"],
+      ["certificar","certificar"],
+      ["noaprobados","noaprobados"],
+      ["cancelados","cancelados"],
+      ["retirados","retirados"],
+      ["observaciones","observaciones"]
+    ]);
+
+    $("fichasForm").scrollIntoView();
+  } else {
+    const aprendiz = aprendices.find(x => x.id === id);
+    if (!aprendiz) return;
+
+    const ficha = fichas.find(f =>
+      String(f.ficha) === String(aprendiz.ficha)
+    );
+
+    if (!ficha) {
+      mensaje("No se encontró la ficha del aprendiz.");
+      return;
+    }
+
+    $("fichaListado").value = String(ficha.id);
+
+    const registros = aprendices.filter(a =>
+      String(a.ficha) === String(ficha.ficha)
+    );
+
+    const convertir = a =>
+      a.documento + "\t" +
+      [a.nombres, a.apellidos].filter(Boolean).join(" ");
+
+    $("listaAprobados").value = registros
+      .filter(a => a.aprobo === "Sí")
+      .map(convertir).join("\n");
+
+    $("listaNoAprobados").value = registros
+      .filter(a => a.aprobo === "No")
+      .map(convertir).join("\n");
+
+    $("aprendicesForm").scrollIntoView();
+  }
 }
+
 function limpiarFicha(){
  $("fichaId").value="";
  ["instructor","programa","ficha","regional","centro","inicio",
@@ -222,12 +307,13 @@ function limpiarFicha(){
  "retirados","observaciones"].forEach(id=>$(id).value="");
  $("correo").value=usuarioActual?.email||"";
 }
-function limpiarAprendiz(){
- $("aprendizId").value="";
- ["aficha","aprograma","documento","nombres","apellidos",
- "aobservaciones"].forEach(id=>$(id).value="");
- $("aprobo").value="Sí";
+
+function limpiarAprendiz() {
+  $("listaAprobados").value = "";
+  $("listaNoAprobados").value = "";
+  $("resumenListados").textContent = "";
 }
+
 async function guardarFicha(){
  try{
  if(!usuarioActual)throw Error("Inicia sesión");
@@ -252,25 +338,114 @@ async function guardarFicha(){
  limpiarFicha();await cargar();mensaje("Ficha guardada en Supabase");
  }catch(e){error(e)}
 }
-async function guardarAprendiz(){
- try{
- if(!usuarioActual)throw Error("Inicia sesión");
- const d={ficha:valor("aficha"),programa:valor("aprograma"),
- documento:valor("documento"),nombres:valor("nombres"),
- apellidos:valor("apellidos"),aprobo:valor("aprobo"),
- observaciones:valor("aobservaciones")};
- if(!d.ficha||!d.programa||!d.documento||!d.nombres||!d.apellidos)
- throw Error("Completa los datos obligatorios del aprendiz");
- let q;
- if(valor("aprendizId")){
- q=db.from("sena_aprendices").update(d).eq("id",valor("aprendizId"));
- }else{
- q=db.from("sena_aprendices").insert({...d,user_id:usuarioActual.id});
- }
- const {error:e}=await q;if(e)throw e;
- limpiarAprendiz();await cargar();mensaje("Aprendiz guardado en Supabase");
- }catch(e){error(e)}
+
+function leerListado(texto, estado, ficha) {
+  const registros = [];
+
+  texto.split(/\r?\n/).forEach((linea, indice) => {
+    if (!linea.trim()) return;
+
+    const columnas = linea.split("\t").map(x => x.trim());
+
+    if (columnas.length !== 2) {
+      throw Error(
+        "Fila " + (indice + 1) +
+        ": pega dos columnas: documento y nombre completo."
+      );
+    }
+
+    const documento = columnas[0].replace(/[\s.]/g, "");
+    const nombre = columnas[1];
+
+    if (!/^\d{5,15}$/.test(documento) || !nombre) {
+      throw Error(
+        "Revisa documento y nombre en la fila " + (indice + 1)
+      );
+    }
+
+    registros.push({
+      user_id: usuarioActual.id,
+      ficha: ficha.ficha,
+      programa: ficha.programa,
+      documento: documento,
+      nombres: nombre,
+      apellidos: "",
+      aprobo: estado,
+      observaciones: ""
+    });
+  });
+
+  return registros;
 }
+
+async function guardarListados() {
+  try {
+    if (!usuarioActual) throw Error("Debes iniciar sesión.");
+
+    const fichaId = document.getElementById("fichaListado").value;
+    const ficha = fichas.find(f => String(f.id) === fichaId);
+
+    if (!ficha) throw Error("Selecciona una ficha.");
+
+    const aprobados = leerListado(
+      document.getElementById("listaAprobados").value,
+      "Sí", ficha
+    );
+
+    const noAprobados = leerListado(
+      document.getElementById("listaNoAprobados").value,
+      "No", ficha
+    );
+
+    const todos = [...aprobados, ...noAprobados];
+
+    if (!todos.length) {
+      throw Error("Pega al menos un aprendiz.");
+    }
+
+    const documentos = todos.map(a => a.documento);
+
+    if (new Set(documentos).size !== documentos.length) {
+      throw Error(
+        "Hay documentos repetidos entre los dos listados."
+      );
+    }
+
+    const confirmar = confirm(
+      "¿Guardar " + todos.length +
+      " aprendices de la ficha " + ficha.ficha + "?"
+    );
+
+    if (!confirmar) return;
+
+   
+const {data: totalGuardados, error: fallo} = await db
+  .rpc("reemplazar_listado_ficha", {
+    p_ficha: ficha.ficha,
+    p_aprendices: todos.map(a => ({
+      documento: a.documento,
+      nombres: a.nombres,
+      aprobo: a.aprobo
+    }))
+  });
+
+
+    if (fallo) throw fallo;
+
+    document.getElementById("resumenListados").textContent =
+      "Guardados: " + aprobados.length +
+      " aprobados y " + noAprobados.length +
+      " no aprobados.";
+
+    await cargar();
+
+    mensaje("Listados guardados correctamente en Supabase");
+
+  } catch(e) {
+    error(e);
+  }
+}
+
 function exportar(tipo){
  const datos=tipo==="fichas"?fichas:aprendices;
  if(!datos.length){mensaje("No hay registros para exportar");return}
